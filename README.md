@@ -4,7 +4,6 @@
 
 ### Project Description
 This project's goals are to analyze the relationship between pathogenic bacteria (E. coli), organic nutrients present in freshwater samples, and other environmental factors in Austin's bodies of water.
-Final paper is under Combating Waterborne Diseases: The Intersection of Public Health, Environmental Sustainability, and Economic Implications
 
 ### Link to Dataset
 https://data.austintexas.gov/Environment/Water-Quality-Sampling-Data/5tye-7ray/about_data
