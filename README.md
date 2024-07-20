@@ -1,4 +1,4 @@
-# SDS Project - WaterQuality
+# Water Quality
 
 ## Project - E. Coli Presence in Austin bodies of water
 
