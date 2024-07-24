@@ -1,0 +1,512 @@
+---
+title: "Analyzing Austin's Water Quality"
+author: "Katie Yang"
+output:
+  html_document:
+    df_print: paged
+---
+# Overview
+### Analyzing the relationship between pathogenic bacteria and various environmental factors present in freshwater samples taken in Austin.
+  
+### Goals
+  
+#### The goals for this project is to observe how different factors and how different locations can affect E.coli presence. Additionally, we also want to be able to analyze a data set and create/conclude data visualizations and answer our hypothesis.
+  
+### Link
+  
+#### [Link to Dataset](https://drive.google.com/file/d/1hD1q0fD3gEoVmovGy9y1p7OmGgA_eDfT/view?usp=sharing)
+  
+### Information on the Data
+  
+#### This is a randomly selected subset of the larger dataset of Water Quality in different waters in Austin and the various tests conducted in these waters. Done through Google Sheets and selected a random sample of 150k (instead of 1.4 million) from the last 20 years.
+
+```{r message = FALSE, warning = FALSE}
+# Load all of the necessary libraries
+library(tidyverse)
+library(MASS)
+library(ggplot2)
+library(ggmap)
+library(dplyr)
+```
+
+## Data Cleaning
+```{r message = FALSE, warning = FALSE}
+# Import the data Water_Quality 
+Water_Quality <- read.csv("~/Water_Quality_Sampling_Data_Subset_20240719.csv", header=FALSE)
+
+# Change unnamed columns into its respective variable names from first row
+col_names <- Water_Quality[1,]
+colnames(Water_Quality) <- col_names
+
+# Remove first row (column names)
+Water_Quality <- Water_Quality[-1,]
+
+# Separate month, day, year, time
+Water_Quality <- Water_Quality %>% separate(SAMPLE_DATE, into = c("Date", "Time"), sep = " ")
+Water_Quality <- Water_Quality %>% separate(Date, into = c("Month", "Day", "Year"), sep = "/")
+
+# Rename some of the columns
+colnames(Water_Quality)[colnames(Water_Quality) == "LAT_DD_WGS84"] <- "Latitude"
+colnames(Water_Quality)[colnames(Water_Quality) == "LON_DD_WGS84"] <- "Longitude"
+
+head(Water_Quality)
+```
+
+## Addressing NA's
+```{r}
+# Find percentage of each columns' not NA
+Water_Quality %>% summarize_all(function(x)mean (!is.na(x)))
+
+```
+##### Only NAs are in SAMPLE_ID which holds no significance to later analysis
+
+
+
+## Visualize the E. coli concentration over the years
+```{r}
+# Data with just E. coli
+ecoli_data <- Water_Quality[Water_Quality$PARAMETER == "E COLI BACTERIA",]
+
+# Visualize E. coli concentrations over the years using the Colonies/100mL unit method
+ecoli_data_colonies <- ecoli_data[ecoli_data$UNIT == "Colonies/100mL",]
+
+ggplot(ecoli_data_colonies, aes(x = Year, y = RESULT)) + geom_col(alpha = 0.5, fill = "#AFE1AF") + labs(title = "E. coli Amounts Over the Years (Colonies/100mL)", x = "Year", y = "E. coli Concentration") + theme_minimal() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Visualize E. coli concentrations over the years the MPN/100mL unitmethod
+ecoli_data_mpn <- ecoli_data[ecoli_data$UNIT == "MPN/100ML",]
+
+ggplot(ecoli_data_mpn, aes(x = Year, y = RESULT)) + geom_col(alpha = 0.5, fill = "#4F7942") + labs(title = "E. coli Amounts Over the Years (MPN/100mL)", x = "Year", y = "E. coli Concentration (MPN/100mL)") + theme_minimal() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Identifying Outliers
+```{r}
+# Create a data vector without NAs in the RESULTS column for the colonies/100mL method
+ecoli_no_na_colonies <- subset(Water_Quality, UNIT == "Colonies/100mL" & !is.na(RESULT) & PARAMETER == "E COLI BACTERIA")
+
+q1 <- quantile(as.numeric(ecoli_no_na_colonies$RESULT), 0.25, na.rm = TRUE)
+q3 <- quantile(as.numeric(ecoli_no_na_colonies$RESULT), 0.75, na.rm = TRUE)
+IQR <- q3 - q1
+lower <- q1 - (1.5 * IQR)
+upper <- q3 + (1.5 * IQR)
+
+# Create data vector of the outliers
+ecoli_outlier_colonies <- ecoli_no_na_colonies[ecoli_no_na_colonies$RESULT <= lower | ecoli_no_na_colonies$RESULT >= upper,]
+
+head(ecoli_outlier_colonies)
+
+# Create data vector without NAs in the RESULTS column for MPN/100ML method
+ecoli_no_na_mpn <- subset(Water_Quality, UNIT == "MPN/100ML" & !is.na(RESULT) & PARAMETER == "E COLI BACTERIA")
+
+q1_v2 <- quantile(as.numeric(ecoli_no_na_mpn$RESULT), 0.25, na.rm = TRUE)
+q3_v2 <- quantile(as.numeric(ecoli_no_na_mpn$RESULT), 0.75, na.rm = TRUE)
+IQR_v2 <- q3_v2 - q1_v2
+lower_v2 <- q1_v2 - (1.5 * IQR_v2)
+upper_v2 <- q3_v2 + (1.5 * IQR_v2)
+
+# Create data vector of the outliers
+ecoli_outlier_mpn <- ecoli_no_na_mpn[ecoli_no_na_mpn$RESULT <= lower | ecoli_no_na_mpn$RESULT >= upper,]
+
+head(ecoli_outlier_mpn)
+
+```
+
+# Data Visualizations
+### Initial Findings
+```{r}
+# Visualization 1 - Bar Graph displaying E. coli Presence by Watershed type and separated by unit
+ggplot(ecoli_data, aes(x = WATERSHED)) + geom_bar(alpha = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) + labs(title = 'E.coli Concentration by Watershed type', x = 'Watershed', y = 'E. coli Presence') + facet_grid(UNIT ~ .)
+
+# Visualization 2 - Bar Graph displaying E. coli Presence by Site type and separated by unit
+ggplot(ecoli_data, aes(x = SITE_TYPE)) + geom_bar(alpha = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) + labs(title = 'E. coli Concentration by Site Type', x = "Site Type", y = "E. coli Presence") + facet_grid(UNIT ~ .)
+
+# Visualization 3 - Bar Graph displaying E. coli Presence by Medium type and separated by unit
+ggplot(ecoli_data, aes(x = MEDIUM)) + geom_bar(alpha = 1) + theme(axis.text.x = element_text(angle = 45, vjust = 0.7)) + labs(title = 'E. coli Concentration by Medium Type', x = "Medium Type", y = "E. coli Presence") + facet_grid(UNIT ~ .)
+```
+
+# Explatory Analysis
+### Finding factors found high E. coli
+```{r message = FALSE, warning = FALSE}
+# Watersheds with the highest and lowest average E. coli counts (Colonies/100mL)
+mean_water <- Water_Quality %>% filter(UNIT == "Colonies/100mL")
+mean_water <- mean_water %>% group_by(WATERSHED) %>% summarise(mean_ecoli = mean(RESULT, na.rm = TRUE)) %>% arrange(desc(mean_ecoli))
+
+top_five <- Water_Quality %>% filter(WATERSHED == "Bear Creek" | WATERSHED == "Country Club West" | WATERSHED == "Slaughter Creek" | WATERSHED == "Tennehill Branch" | WATERSHED == "Buttermilk Branch")
+top_five <- top_five %>% group_by(PARAMETER) %>% summarise(mean_top = mean(RESULT, na.rm = TRUE)) %>% arrange(desc(mean_top))
+
+print(top_five)
+
+bot_five <- Water_Quality %>% filter(WATERSHED == "North Fork Dry Creek East" | WATERSHED == "Marble Creek" | WATERSHED == "White Branch" | WATERSHED == "Decker Creek" | WATERSHED == "Turkey Creek")
+bot_five <- bot_five %>% group_by(PARAMETER) %>% summarise(mean_bot = mean(RESULT, na.rm = TRUE)) %>% arrange(desc(mean_bot))
+
+print(bot_five)
+
+# Watersheds with the highest and lowest average E. coli counts (MPN/100mL)
+mean_water_v2 <- Water_Quality %>% filter(UNIT == "MPN/100ML")
+mean_water_v2 <- mean_water_v2 %>% group_by(WATERSHED) %>% summarise(mean_ecoli_v2 = mean(RESULT, na.rm = TRUE)) %>% arrange(desc(mean_ecoli_v2))
+
+top_five_v2 <- Water_Quality %>% filter(WATERSHED == "Fort Branch" | WATERSHED == "Waller Creek" | WATERSHED == "Lady Bird Lake" | WATERSHED == "Blunn Creek" | WATERSHED == "East Bouldin Creek")
+top_five_v2 <- top_five_v2 %>% group_by(PARAMETER) %>% summarise(mean_top_v2 = mean(RESULT, na.rm = TRUE)) %>% arrange(desc(mean_top_v2))
+
+print(top_five_v2)
+
+bot_five_v2 <- Water_Quality %>% filter(WATERSHED == "Lake Travis" | WATERSHED == "Bohls Hollow" | WATERSHED == "Panther Hollow" | WATERSHED == "South Fork Dry Creek East" | WATERSHED == "Bee Creek West")
+bot_five_v2 <- bot_five_v2 %>% group_by(PARAMETER) %>% summarise(mean_bot_v2 = mean(RESULT, na.rm = TRUE)) %>% arrange(desc(mean_bot_v2))
+
+print(bot_five_v2)
+```
+
+
+### Examination One - The relationship between Nutrients and E. coli concentrations
+```{r message = FALSE, warning = FALSE}
+# Filter and adjust data
+filtered_nut_data <- Water_Quality %>% filter(PARAMETER == "E COLI BACTERIA" | PARAM_TYPE == "Nutrients") %>% drop_na(RESULT)
+
+# Make sure that all the values in RESULT is numeric
+filtered_nut_data$RESULT <- as.numeric(filtered_nut_data$RESULT)
+
+# Separate the E. coli concentration units along with Nutrients
+filtered_nut_data1 <- filtered_nut_data %>% filter(UNIT == "Colonies/100mL" | UNIT == "MG/L")
+filtered_nut_data2 <- filtered_nut_data %>% filter(UNIT == "MPN/100ML" | UNIT == "MG/L")
+
+# Create vector where data is filtered by the desired parameters 
+# Group by parameter and watershed summarizing for the average concentration of each, pivoting wider so that each parameter becomes a column
+summary_nut_data1 <- filtered_nut_data1 %>% group_by(WATERSHED, PARAMETER) %>% summarise(avg_con = mean(RESULT, na.rm = T)) %>% pivot_wider(names_from = PARAMETER, values_from = avg_con)
+summary_nut_data2 <- filtered_nut_data2 %>% group_by(WATERSHED, PARAMETER) %>% summarise(avg_con = mean(RESULT, na.rm = T)) %>% pivot_wider(names_from = PARAMETER, values_from = avg_con)
+
+head(summary_nut_data1)
+head(summary_nut_data2)
+
+```
+
+### All Ammonia Analysis
+```{r}
+# Making sure all values are finite
+summary_amm_data1 <- summary_nut_data1[is.finite(summary_nut_data1$'AMMONIA AS N') & is.finite(summary_nut_data1$'E COLI BACTERIA'),]
+summary_amm_data2 <- summary_nut_data2[is.finite(summary_nut_data2$'AMMONIA AS N') & is.finite(summary_nut_data2$'E COLI BACTERIA'),]
+
+# Renaming columns
+summary_amm_data1 <- summary_amm_data1 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+summary_amm_data2 <- summary_amm_data2 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+
+summary_amm_data1 <- summary_amm_data1 %>% rename(AMMONIA_AS_N = 'AMMONIA AS N')
+summary_amm_data2 <- summary_amm_data2 %>% rename(AMMONIA_AS_N = 'AMMONIA AS N')
+
+# Making sure all the values are numeric
+summary_amm_data1$AMMONIA_AS_N <- as.numeric(summary_amm_data1$AMMONIA_AS_N)
+summary_amm_data1$E_COLI_BACTERIA <- as.numeric(summary_amm_data1$E_COLI_BACTERIA)
+
+summary_amm_data2$AMMONIA_AS_N <- as.numeric(summary_amm_data2$AMMONIA_AS_N)
+summary_amm_data2$E_COLI_BACTERIA <- as.numeric(summary_amm_data2$E_COLI_BACTERIA)
+
+# Create visualization for the concentrations of E. coli to the concentration of Ammonia
+plot(summary_amm_data1$AMMONIA_AS_N, summary_amm_data1$E_COLI_BACTERIA, main = 'E. coli Concentration vs Ammonia as N', xlab = 'Ammonia as N (MG/L)', ylab = 'E. coli Concentration (Colonies/100mL)', pch = 20)
+
+# Add a regression line
+regression_amm1 <- lm(E_COLI_BACTERIA ~ AMMONIA_AS_N, data = summary_amm_data1)
+
+abline(regression_amm1, col = "red")
+
+# The coefficients of the regression line
+print(regression_amm1)
+
+# The regression stats
+summary(regression_amm1)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_amm1)$r.squared)
+
+# Create visualization for the concentrations of E. coli to the concentration of Ammonia
+plot(summary_amm_data2$AMMONIA_AS_N, summary_amm_data2$E_COLI_BACTERIA, main = 'E. coli Concentration vs Ammonia as N', xlab = 'Ammonia as N (MG/L)', ylab = 'E. coli Concentration (MPN/100mL)', pch = 20)
+
+# Add a regression line
+regression_amm2 <- lm(E_COLI_BACTERIA ~ AMMONIA_AS_N, data = summary_amm_data2)
+
+abline(regression_amm2, col = "red")
+
+# The coefficients of the regression line
+print(regression_amm2)
+
+# The regression stats
+summary(regression_amm2)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_amm2)$r.squared)
+```
+
+##### As seen both R-squared values, there seems to be a weak, but positive correlation between ammonia and E. coli concentration.
+
+#### All Nitrate Analysis
+```{r}
+# Combining all the nutrient values that contain N (Nitrogen)
+summary_nit_data1 <- summary_nut_data1 %>% mutate(TOTAL_NITRATE = coalesce(`NITRATE AS N`, 0) + coalesce(`NITRATE/NITRITE AS N`, 0) + coalesce(`NITRATE AS NO3`, 0))
+summary_nit_data2 <- summary_nut_data2 %>% mutate(TOTAL_NITRATE = coalesce(`NITRATE AS N`, 0) + coalesce(`NITRATE/NITRITE AS N`, 0) + coalesce(`NITRATE AS NO3`, 0))
+
+# Making sure all values are finite
+summary_nit_data1 <- summary_nit_data1[is.finite(summary_nit_data1$TOTAL_NITRATE) & is.finite(summary_nit_data1$'E COLI BACTERIA'),]
+summary_nit_data2 <- summary_nit_data2[is.finite(summary_nit_data2$TOTAL_NITRATE) & is.finite(summary_nit_data2$'E COLI BACTERIA'),]
+
+# Renaming columns
+summary_nit_data1 <- summary_nit_data1 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+summary_nit_data2 <- summary_nit_data2 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+
+# Making sure all the values are numeric
+summary_nit_data1$TOTAL_NITRATE <- as.numeric(summary_nit_data1$TOTAL_NITRATE)
+summary_nit_data1$E_COLI_BACTERIA <- as.numeric(summary_nit_data1$E_COLI_BACTERIA)
+
+summary_nit_data2$TOTAL_NITRATE <- as.numeric(summary_nit_data2$TOTAL_NITRATE)
+summary_nit_data2$E_COLI_BACTERIA <- as.numeric(summary_nit_data2$E_COLI_BACTERIA)
+
+# Create visualization for the concentrations of E. coli to the concentration of Nitrate
+plot(summary_nit_data1$TOTAL_NITRATE, summary_nit_data1$E_COLI_BACTERIA, main = 'E. coli Concentration vs Total Nitrate', xlab = 'Total Nitrate (MG/L)', ylab = 'E. coli Concentration (Colonies/100mL)', pch = 20)
+
+# Add a regression line
+regression_nit1 <- lm(E_COLI_BACTERIA ~ TOTAL_NITRATE, data = summary_nit_data1)
+
+abline(regression_nit1, col = "red")
+
+# The coefficients of the regression line
+print(regression_nit1)
+
+# The regression stats
+summary(regression_nit1)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_nit1)$r.squared)
+
+# Create visualization for the concentrations of E. coli to the concentration of Nitrate
+plot(summary_nit_data2$TOTAL_NITRATE, summary_nit_data2$E_COLI_BACTERIA, main = 'E. coli Concentration vs Total Nitrate', xlab = 'Total Nitrate (MG/L)', ylab = 'E. coli Concentration (MPN/100mL)', pch = 20)
+print(plot)
+
+# Add a regression line
+regression_nit2 <- lm(E_COLI_BACTERIA ~ TOTAL_NITRATE, data = summary_nit_data2)
+
+abline(regression_nit2, col = "red")
+
+# The coefficients of the regression line
+print(regression_nit2)
+
+# The regression stats
+summary(regression_nit2)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_nit2)$r.squared)
+```
+##### As seen by both R-squared values, there seems to be a very weak and negative correlation between Nitrate and E. coli concentrations.
+
+#### All Phosphorus Analysis
+```{r}
+# Combining all the nutrient values that contain P (Phosphorus)
+summary_pho_data1 <- summary_nut_data1 %>% mutate(TOTAL_PHOSPHORUS = coalesce(`ORTHOPHOSPHORUS AS P`, 0) + coalesce(`PHOSPHORUS AS P`, 0))
+summary_pho_data2 <- summary_nut_data2 %>% mutate(TOTAL_PHOSPHORUS = coalesce(`ORTHOPHOSPHORUS AS P`, 0) + coalesce(`PHOSPHORUS AS P`, 0))
+
+# Making sure all values are finite
+summary_pho_data1 <- summary_pho_data1[is.finite(summary_pho_data1$TOTAL_PHOSPHORUS) & is.finite(summary_pho_data1$'E COLI BACTERIA'),]
+summary_pho_data2 <- summary_pho_data2[is.finite(summary_pho_data2$TOTAL_PHOSPHORUS) & is.finite(summary_pho_data2$'E COLI BACTERIA'),]
+
+# Renaming columns
+summary_pho_data1 <- summary_pho_data1 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+summary_pho_data2 <- summary_pho_data2 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+
+# Making sure all the values are numeric
+summary_pho_data1$TOTAL_PHOSPHORUS <- as.numeric(summary_pho_data1$TOTAL_PHOSPHORUS)
+summary_pho_data1$E_COLI_BACTERIA <- as.numeric(summary_pho_data1$E_COLI_BACTERIA)
+
+summary_pho_data2$TOTAL_PHOSPHORUS <- as.numeric(summary_pho_data2$TOTAL_PHOSPHORUS)
+summary_pho_data2$E_COLI_BACTERIA <- as.numeric(summary_pho_data2$E_COLI_BACTERIA)
+
+# Create visualization for the concentrations of E. coli to the concentration of Phosphorus
+plot(summary_pho_data1$TOTAL_PHOSPHORUS, summary_pho_data1$E_COLI_BACTERIA, main = 'E. coli Concentration vs Total Phosphorus', xlab = 'Total Phosphorus (MG/L)', ylab = 'E. coli Concentration (Colonies/100mL)', pch = 20)
+
+# Add a regression line
+regression_pho1 <- lm(E_COLI_BACTERIA ~ TOTAL_PHOSPHORUS, data = summary_pho_data1)
+
+abline(regression_pho1, col = "red")
+
+# The coefficients of the regression line
+print(regression_pho1)
+
+# The regression stats
+summary(regression_pho1)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_pho1)$r.squared)
+
+# Create visualization for the concentrations of E. coli to the concentration of Phosphorus
+plot(summary_pho_data2$TOTAL_PHOSPHORUS, summary_pho_data2$E_COLI_BACTERIA, main = 'E. coli Concentration vs Total Phosphorus', xlab = 'Total Phosphorus (MG/L)', ylab = 'E. coli Concentration (MPN/100mL)', pch = 20)
+
+# Add a regression line
+regression_pho2 <- lm(E_COLI_BACTERIA ~ TOTAL_PHOSPHORUS, data = summary_pho_data2)
+
+abline(regression_pho2, col = "red")
+
+# The coefficients of the regression line
+print(regression_pho2)
+
+# The regression stats
+summary(regression_pho2)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_pho2)$r.squared)
+```
+##### As seen by the two R-squared values, there seems to be no correlation between phosphorus and E. coli concentration.
+
+### Examination Two - The relationship between Enterococcus and E. coli
+```{r message = FALSE, warning = FALSE}
+# Filter and adjust data
+filtered_ent_data <- Water_Quality %>% filter(PARAMETER == "E COLI BACTERIA" | PARAMETER == "ENTEROCOCCUS") %>% drop_na(RESULT)
+
+# Make sure that all the values in RESULT are numeric
+filtered_ent_data$RESULT <- as.numeric(filtered_ent_data$RESULT)
+
+# Separate the E. coli concentration units along with Enterococcus concentration
+filtered_ent_data1 <- filtered_ent_data %>% filter(UNIT == "Colonies/100mL" | PARAMETER == "ENTEROCOCCUS")
+filtered_ent_data2 <- filtered_ent_data %>% filter(UNIT == "MPN/100ML" | PARAMETER == "ENTEROCOCCUS")
+
+# Create vector where data is filtered by the desired parameters 
+# Group by parameter and watershed summarizing for the average concentration of each, pivoting wider so that each parameter becomes a column
+summary_ent_data1 <- filtered_ent_data1 %>% group_by(WATERSHED, PARAMETER) %>% summarise(avg_con = mean(RESULT, na.rm = T)) %>% pivot_wider(names_from = PARAMETER, values_from = avg_con)
+summary_ent_data2 <- filtered_ent_data2 %>% group_by(WATERSHED, PARAMETER) %>% summarise(avg_con = mean(RESULT, na.rm = T)) %>% pivot_wider(names_from = PARAMETER, values_from = avg_con)
+
+# Making sure all values are finite
+summary_ent_data1 <- summary_ent_data1[is.finite(summary_ent_data1$'ENTEROCOCCUS') & is.finite(summary_ent_data1$'E COLI BACTERIA'),]
+summary_ent_data2 <- summary_ent_data2[is.finite(summary_ent_data2$'ENTEROCOCCUS') & is.finite(summary_ent_data2$'E COLI BACTERIA'),]
+
+# Renaming columns
+summary_ent_data1 <- summary_ent_data1 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+summary_ent_data2 <- summary_ent_data2 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+
+head(summary_ent_data1)
+head(summary_ent_data2)
+
+```
+
+#### Enterococcus Analysis
+```{r}
+# Some cleaning
+summary_ent_data1 <- na.omit(summary_ent_data1)
+summary_ent_data2 <- na.omit(summary_ent_data2)
+
+# Making sure all numbers are numeric
+summary_ent_data1$ENTEROCOCCUS <- as.numeric(summary_ent_data1$ENTEROCOCCUS)
+summary_ent_data1$E_COLI_BACTERIA <- as.numeric(summary_ent_data1$E_COLI_BACTERIA)
+
+summary_ent_data2$ENTEROCOCCUS <- as.numeric(summary_ent_data2$ENTEROCOCCUS)
+summary_ent_data2$E_COLI_BACTERIA <- as.numeric(summary_ent_data2$E_COLI_BACTERIA)
+
+# Create visualization for the concentrations of E. coli to the concentration of Enterococcus
+plot(summary_ent_data1$ENTEROCOCCUS, summary_ent_data1$E_COLI_BACTERIA, main = 'E. coli Concentration vs Enterococcus', xlab = 'Enterococcus', ylab = 'E. coli Concentration (Colonies/100mL)', pch = 20)
+
+# Add a regression line
+regression_enter1 <- lm(E_COLI_BACTERIA ~ ENTEROCOCCUS, data = summary_ent_data1)
+
+abline(regression_enter1, col = "red")
+
+# The coefficients of the regression line
+print(regression_enter1)
+
+# The regression stats
+summary(regression_enter1)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_enter1)$r.squared)
+
+# Create visualization for the concentrations of E. coli to the concentration of Enterococcus
+plot(summary_ent_data2$ENTEROCOCCUS, summary_ent_data2$E_COLI_BACTERIA, main = 'E. coli Concentration vs Enterococcus', xlab = 'Enterococcus', ylab = 'E. coli Concentration (MPN/100mL)', pch = 20)
+
+# Add a regression line
+regression_enter2 <- lm(E_COLI_BACTERIA ~ ENTEROCOCCUS, data = summary_ent_data2)
+
+abline(regression_enter2, col = "red")
+
+# The coefficients of the regression line
+print(regression_enter2)
+
+# The regression stats
+summary(regression_enter2)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_enter2)$r.squared)
+```
+##### As seen by the two R-squared values, there seems to be no correlation between Enterococcus concentration and E. coli concentration.
+
+### Examination Three - The relationship between Fecal Coliform bacteria and E. coli
+```{r}
+# Filter and adjust data
+filtered_fecal_data <- Water_Quality %>% filter(PARAMETER == "E COLI BACTERIA" | PARAMETER == "FECAL COLIFORM BACTERIA") %>% drop_na(RESULT)
+
+# Make sure that all the values in RESULT are numeric
+filtered_fecal_data$RESULT <- as.numeric(filtered_fecal_data$RESULT)
+
+# Separate the E. coli concentration units along with Fecal Coliform Bacteria concentration
+filtered_fecal_data1 <- filtered_fecal_data %>% filter(UNIT == "Colonies/100mL" | PARAMETER == "FECAL COLIFORM BACTERIA")
+filtered_fecal_data2 <- filtered_fecal_data %>% filter(UNIT == "MPN/100ML" | PARAMETER == "FECAL COLIFORM BACTERIA")
+
+# Create vector where data is filtered by the desired parameters 
+# Group by parameter and watershed summarizing for the average concentration of each, pivoting wider so that each parameter becomes a column
+summary_fecal_data1 <- filtered_fecal_data1 %>% group_by(WATERSHED, PARAMETER) %>% summarise(avg_con = mean(RESULT, na.rm = T)) %>% pivot_wider(names_from = PARAMETER, values_from = avg_con)
+summary_fecal_data2 <- filtered_fecal_data2 %>% group_by(WATERSHED, PARAMETER) %>% summarise(avg_con = mean(RESULT, na.rm = T)) %>% pivot_wider(names_from = PARAMETER, values_from = avg_con)
+
+# Making sure all values are finite
+summary_fecal_data1 <- summary_fecal_data1[is.finite(summary_fecal_data1$'FECAL COLIFORM BACTERIA') & is.finite(summary_fecal_data1$'E COLI BACTERIA'),]
+summary_fecal_data2 <- summary_fecal_data2[is.finite(summary_fecal_data2$'FECAL COLIFORM BACTERIA') & is.finite(summary_fecal_data2$'E COLI BACTERIA'),]
+
+summary_fecal_data1 <- summary_fecal_data1 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+summary_fecal_data2 <- summary_fecal_data2 %>% rename(E_COLI_BACTERIA = 'E COLI BACTERIA')
+
+# Renaming columns
+summary_fecal_data1 <- summary_fecal_data1 %>% rename(FECAL_COLIFORM_BACTERIA = 'FECAL COLIFORM BACTERIA')
+summary_fecal_data2 <- summary_fecal_data2 %>% rename(FECAL_COLIFORM_BACTERIA = 'FECAL COLIFORM BACTERIA')
+
+head(summary_fecal_data1)
+head(summary_fecal_data2)
+```
+
+#### Fecal Coliform Bacteria Analysis
+```{r}
+# Some cleaning
+summary_fecal_data1 <- na.omit(summary_fecal_data1)
+summary_fecal_data2 <- na.omit(summary_fecal_data2)
+
+# Making sure all numbers are numeric
+summary_fecal_data1$FECAL_COLIFORM_BACTERIA <- as.numeric(summary_fecal_data1$FECAL_COLIFORM_BACTERIA)
+summary_fecal_data1$E_COLI_BACTERIA <- as.numeric(summary_fecal_data1$E_COLI_BACTERIA)
+
+summary_fecal_data2$FECAL_COLIFORM_BACTERIA <- as.numeric(summary_fecal_data2$FECAL_COLIFORM_BACTERIA)
+summary_fecal_data2$E_COLI_BACTERIA <- as.numeric(summary_fecal_data2$E_COLI_BACTERIA)
+
+# Create visualization for the concentrations of E. coli to the concentration of Fecal Coliform Bacteria
+plot(summary_fecal_data1$FECAL_COLIFORM_BACTERIA, summary_fecal_data1$E_COLI_BACTERIA, main = 'E. coli Concentration vs Fecal Coliform Bacteria', xlab = 'Fecal Coliform Bacteria', ylab = 'E. coli Concentration (Colonies/100mL)', pch = 20)
+
+# Add a regression line
+regression_fecal1 <- lm(E_COLI_BACTERIA ~ FECAL_COLIFORM_BACTERIA, data = summary_fecal_data1)
+
+abline(regression_fecal1, col = "red")
+
+# The coefficients of the regression line
+print(regression_fecal1)
+
+# The regression stats
+summary(regression_fecal1)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_fecal1)$r.squared)
+
+# Create visualization for the concentrations of E. coli to the concentration of Fecal Coliform Bacteria
+plot(summary_fecal_data2$FECAL_COLIFORM_BACTERIA, summary_fecal_data2$E_COLI_BACTERIA, main = 'E. coli Concentration vs Fecal Coliform Bacteria', xlab = 'Fecal Coliform Bacteria', ylab = 'E. coli Concentration (MPN/100mL)', pch = 20)
+print(plot)
+
+# Add a regression line
+regression_fecal2 <- lm(E_COLI_BACTERIA ~ FECAL_COLIFORM_BACTERIA, data = summary_fecal_data2)
+
+abline(regression_fecal2, col = "red")
+
+# The coefficients of the regression line
+print(regression_fecal2)
+
+# The regression stats
+summary(regression_fecal2)
+
+# Displays the R-squared value for these two variables
+cat("R-squared:", summary(regression_fecal2)$r.squared)
+```
+##### As seen both R-squared values, there seems to be a weak, but positive correlation between ammonia and E. coli concentration.
